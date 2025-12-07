@@ -195,7 +195,7 @@ void executor_loop(ClientConnection* executor) {
         }
     }
 
-    // Executor disconnected
+    // executor disconnected
     {
         std::lock_guard<std::mutex> lock(executor_mutex);
         if (Executor == executor) {
