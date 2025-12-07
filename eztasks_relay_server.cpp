@@ -193,13 +193,20 @@ void executor_loop(ClientConnection* executor) {
             std::cout << "[info] (executor) heartbeat received" << std::endl;
             executor->last_heartbeat = std::chrono::steady_clock::now();
         }
-        else {
-            std::cout << "Received from executor (ignored): " << line << std::endl;
+    }
+
+    // Executor disconnected
+    {
+        std::lock_guard<std::mutex> lock(executor_mutex);
+        if (Executor == executor) {
+            std::cout << "Executor disconnected." << std::endl;
+            close_socket(Executor->socket_fd);
+            delete Executor;
+            Executor = nullptr;
         }
     }
-    std::cout << "Executor disconnected." << std::endl;
-    close_socket(executor->socket_fd);
 }
+
 
 void heartbeat_monitor() {
     while (true) {
