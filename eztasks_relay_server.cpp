@@ -127,34 +127,24 @@ void handle_connection(int client_socket) {
         Executor = new ClientConnection{ client_socket, std::chrono::steady_clock::now() };
         std::cout << "Executor connected." << std::endl;
 
-        // Flush buffered client messages
-        {
-            std::lock_guard<std::mutex> buf_lock(buffer_mutex);
-            while (!message_buffer.empty()) {
-                send_line_to_executor(message_buffer.front());
-                message_buffer.pop();
-            }
-        }
-
         // Run executor loop in its own thread
         std::thread(executor_loop, Executor).detach();
     }
     else {
         std::cout << "[info] client connected" << std::endl;
 
-        // Forward or buffer first line
+        // Executor online? send immediately. If offline, DROP the message.
         {
             std::lock_guard<std::mutex> lock(executor_mutex);
             if (Executor != nullptr) {
                 send_line_to_executor(first_line);
             }
             else {
-                std::lock_guard<std::mutex> buf_lock(buffer_mutex);
-                message_buffer.push(first_line);
+                std::cout << "[warn] Executor offline — dropping: " << first_line << std::endl;
             }
         }
 
-        // Forward or buffer remaining lines
+        // Process remaining lines — also drop when offline
         std::string line;
         while (read_line(client_socket, line)) {
             std::lock_guard<std::mutex> lock(executor_mutex);
@@ -162,14 +152,15 @@ void handle_connection(int client_socket) {
                 send_line_to_executor(line);
             }
             else {
-                std::lock_guard<std::mutex> buf_lock(buffer_mutex);
-                message_buffer.push(line);
+                std::cout << "[warn] Executor offline — dropping: " << line << std::endl;
             }
         }
 
         close_socket(client_socket);
     }
 }
+
+
 
 
 void executor_loop(ClientConnection* executor) {
