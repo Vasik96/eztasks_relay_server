@@ -109,13 +109,39 @@ void send_line_to_executor(const std::string& line) {
     std::cout << "Forwarded client payload to executor: " << line << std::endl;
 }
 
+
+
+
+
+
 void handle_connection(int client_socket) {
     std::vector<std::string> lines;
+    std::string buffer;
 
-    // Read all lines from this client first
-    std::string line;
-    while (read_line(client_socket, line)) {
-        lines.push_back(line);
+    char c;
+    while (true) {
+        ssize_t n =
+#ifdef _WIN32
+            recv(client_socket, &c, 1, 0);
+#else
+            read(client_socket, &c, 1);
+#endif
+        if (n <= 0) {
+            // Client disconnected, flush any remaining buffer
+            if (!buffer.empty()) {
+                lines.push_back(buffer);
+                buffer.clear();
+            }
+            break;
+        }
+
+        if (c == '\n') {
+            lines.push_back(buffer);
+            buffer.clear();
+        }
+        else if (c != '\r') {
+            buffer += c;
+        }
     }
 
     if (lines.empty()) {
@@ -123,7 +149,7 @@ void handle_connection(int client_socket) {
         return;
     }
 
-    // Check if this is the executor
+    // Executor connection
     if (lines[0] == "executor") {
         std::lock_guard<std::mutex> lock(executor_mutex);
         if (Executor != nullptr) {
@@ -134,32 +160,27 @@ void handle_connection(int client_socket) {
 
         Executor = new ClientConnection{ client_socket, std::chrono::steady_clock::now() };
         std::cout << "Executor connected." << std::endl;
-
-        // Run executor loop in its own thread
         std::thread(executor_loop, Executor).detach();
         return;
     }
 
     // Normal client
     std::cout << "[info] client connected" << std::endl;
-
-    // Lock executor once and decide what to do with all messages
     std::lock_guard<std::mutex> lock(executor_mutex);
     if (Executor != nullptr) {
-        // Forward all lines to executor
-        for (const auto& l : lines) {
+        for (const auto& l : lines)
             send_line_to_executor(l);
-        }
     }
     else {
-        // Drop all messages immediately
-        for (const auto& l : lines) {
+        for (const auto& l : lines)
             std::cout << "[warn] Executor offline — dropping: " << l << std::endl;
-        }
     }
 
     close_socket(client_socket);
 }
+
+
+
 
 
 
